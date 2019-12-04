@@ -56,7 +56,7 @@ const QueryRoot = new graphql.GraphQLObjectType({
 const MutationRoot = new graphql.GraphQLObjectType({
   name: 'Mutation',
   fields: () => ({
-    User: {
+    createUser: {
       type: User,
       args: {
         age: { type: graphql.GraphQLNonNull(graphql.GraphQLInt) },
@@ -75,7 +75,23 @@ const MutationRoot = new graphql.GraphQLObjectType({
           throw new Error("Failed to insert new user: " + err)
         }
       }
-    }
+    },
+    updateUser: {
+      type: User,
+      args: {
+        id: { type: graphql.GraphQLNonNull(graphql.GraphQLInt) },
+        age: { type: graphql.GraphQLNonNull(graphql.GraphQLInt) },
+        firstName: { type: graphql.GraphQLNonNull(graphql.GraphQLString) },
+        lastName: { type: graphql.GraphQLNonNull(graphql.GraphQLString) }
+      },
+      resolve: async (parent, { id, age, firstName, lastName }, context, resolveInfo) => {
+        try {
+          return (await knex.raw("UPDATE " + User._typeConfig.sqlTable + " SET age = '" + age + "', firstName = '" + firstName + "', lastName = '" + lastName + "' WHERE id = " + id + ";"))
+        } catch (err) {
+          throw new Error("Failed to update user: " + err)
+        }
+      }
+    },
   })
 })
 
@@ -93,7 +109,7 @@ const User = new graphql.GraphQLObjectType({
   name: 'User',
   fields: () => ({
     id: { type: graphql.GraphQLInt },
-    age: { 
+    age: {
       type: graphql.GraphQLInt,
       //This is an example of how to define the column name if it doesn't match the field name
       // sqlColumn: 'ageOfUser'
