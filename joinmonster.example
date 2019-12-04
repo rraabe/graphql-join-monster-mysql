@@ -1,0 +1,144 @@
+import joinMonster from 'join-monster'
+import {
+  GraphQLObjectType,
+  GraphQLList,
+  GraphQLString,
+  GraphQLInt
+  // and some other stuff
+} from 'graphql'
+
+const User = new GraphQLObjectType({
+  name: 'User',
+  sqlTable: 'accounts', // the SQL table for this object type is called "accounts"
+  uniqueKey: 'id', // the id in each row is unique for this table
+  fields: () => ({
+    id: {
+      // the column name is assumed to be the same as the field name
+      type: GraphQLInt
+    },
+    email: {
+      type: GraphQLString,
+      // if the column name is different, it must be specified specified
+      sqlColumn: 'email_address'
+    },
+    idEncoded: {
+      description: 'The ID base-64 encoded',
+      type: GraphQLString,
+      // this field uses a sqlColumn and applies a resolver function on the value
+      // if a resolver is present, the `sqlColumn` MUST be specified even if it is the same name as the field
+      sqlColumn: 'id',
+      resolve: user => toBase64(user.idEncoded)
+    },
+    fullName: {
+      description: "A user's first and last name",
+      type: GraphQLString,
+      // perhaps there is no 1-to-1 mapping of field to column
+      // this field depends on multiple columns
+      sqlDeps: [ 'first_name', 'last_name' ],
+      // compute the value with a resolver
+      resolve: user => `${user.first_name} ${user.last_name}`
+    },
+    capitalizedLastName: {
+      type: GraphQLString,
+      // do a computed column in SQL with raw expression
+      sqlExpr: (table, args) => `UPPER(${table}.last_name)`
+    },
+    // got tables inside tables??
+    // get it with a JOIN!
+    posts: {
+      description: "A List of posts this user has written.",
+      type: new GraphQLList(Post),
+      // a function to generate the join condition from the table aliases
+      sqlJoin(userTable, postTable) {
+        return `${userTable}.id = ${postTable}.author_id`
+      }
+    },
+    // got a relationship but don't want to add another JOIN?
+    // get this in a second batch request
+    comments: {
+      description: "The comment they have written",
+      type: new GraphQLList(Comment),
+      // specify which columns to match up the values
+      sqlBatch: {
+        thisKey: 'author_id',
+        parentKey: 'id'
+      }
+    },
+    // many-to-many relations are supported too
+    following: {
+      description: "Other users that this user is following.",
+      type: new GraphQLList(User),
+      // name the table that holds the two foreign keys
+      junction: {
+        sqlTable: 'relationships',
+        sqlJoins: [
+          // first the parent table to the junction
+          (followerTable, junctionTable, args) => `${followerTable}.id = ${junctionTable}.follower_id`,
+          // then the junction to the child
+          (junctionTable, followeeTable, args) => `${junctionTable}.followee_id = ${followeeTable}.id`
+        ]
+      }
+    },
+    numLegs: {
+      description: 'Number of legs this user has.',
+      type: GraphQLInt,
+      // data isn't coming from the SQL table? no problem! joinMonster will ignore this field
+      resolve: () => 2
+    }
+  })
+})
+
+const Comment = new GraphQLObjectType({
+  name: 'Comment',
+  sqlTable: 'comments',
+  uniqueKey: 'id',
+  fields: () => ({
+    // id and body column names are the same
+    id: {
+      type: GraphQLInt
+    },
+    body: {
+      type: GraphQLString
+    }
+  })
+})
+
+const Post = new GraphQLObjectType({
+  name: 'Post',
+  sqlTable: 'posts',
+  uniqueKey: 'id',
+  fields: () => ({
+    id: {
+      type: GraphQLInt
+    },
+    body: {
+      type: GraphQLString
+    }
+  })
+})
+
+export const QueryRoot = new GraphQLObjectType({
+  name: 'Query',
+  fields: () => ({
+    // place this user type in the schema
+    user: {
+      type: User,
+      // let client search for users by `id`
+      args: {
+        id: { type: GraphQLInt }
+      },
+      // how to write the WHERE condition
+      where: (usersTable, args, context) => {
+        if (args.id) return `${usersTable}.id = ${args.id}`
+      },
+      resolve: (parent, args, context, resolveInfo) => {
+        // resolve the user and the comments and any other descendants in a single request and return the data!
+        // all you need to pass is the `resolveInfo` and a callback for querying the database
+        return joinMonster(resolveInfo, {}, sql => {
+          // knex is a query library for SQL databases
+          return knex.raw(sql)
+        })
+      }
+    }
+  })
+})
