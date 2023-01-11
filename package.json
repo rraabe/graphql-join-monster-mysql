@@ -15,7 +15,7 @@
     "express-graphql": "^0.9.0",
     "graphql": "^14.5.8",
     "join-monster": "^2.1.1",
-    "knex": "^0.20.3",
+    "knex": "^2.4.0",
     "mysql": "^2.17.1"
   }
 }
